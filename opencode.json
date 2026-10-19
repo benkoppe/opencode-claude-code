@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "references": {
+    "pi-claude-code": {
+      "repository": "https://github.com/earendil-works/pi-claude-code"
+    },
+    "opencode-with-claude": {
+      "repository": "https://github.com/ianjwhite99/opencode-with-claude"
+    }
+  }
+}
