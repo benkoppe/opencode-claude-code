@@ -1,0 +1,8 @@
+The Claude Code bridge, turn relay, inert MCP inventory, environment/billing
+helpers, schema normalization, and corresponding tests are adapted from:
+
+  pi-claude-code — Copyright (c) 2026 Armin Ronacher
+  https://github.com/earendil-works/pi-claude-code
+  revision 70abb65186592ca788b29b3db22c3160d629c41f
+
+Distributed under the MIT license reproduced in LICENSE.

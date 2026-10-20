@@ -1,0 +1,29 @@
+{
+  "name": "opencode-claude-code",
+  "version": "0.1.0",
+  "description": "Claude Code CLI provider for OpenCode 2",
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "exports": "./dist/index.js",
+  "main": "./dist/index.js",
+  "files": ["dist", "LICENSE", "NOTICE"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --experimental-transform-types --test tests/*.test.ts",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "2.0.26",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.0.26",
+    "@types/node": "^22.19.0",
+    "effect": "4.0.0-rc.112",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": { "node": ">=22.19.0" },
+  "license": "MIT"
+}
