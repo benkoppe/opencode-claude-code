@@ -66,7 +66,7 @@ Optionally, set `"model": "claude-code/opus"`, or another model, to change Openc
 If the **Claude Code** label is missing, sign into Claude Code with `claude auth login`,
 then reload Opencode2 with `opencode service restart`.
 
-Optional plugin options are `claudeCommand`, `configDir`, and `nodeCommand`.
+Optional executable and directory options are `claudeCommand`, `configDir`, and `nodeCommand`.
 Use the object form, for example:
 
 ```json
@@ -74,7 +74,10 @@ Use the object form, for example:
   "plugins": [
     {
       "package": "/path/to/dist",
-      "options": { "claudeCommand": "/path/to/claude" }
+      "options": {
+        "claudeCommand": "/path/to/claude",
+        "allowUsageCredits": false
+      }
     }
   ]
 }
@@ -95,11 +98,18 @@ To hide the built-in Anthropic provider, append this OpenCode policy:
 
 ## Billing and limits
 
-The bridge rejects conflicting API-key and backend overrides. It stops on
-reported usage-credit overage, but cannot prevent a charge for a request already
-sent. Disable usage credits in Claude settings for a stronger boundary. Set
-`OPENCODE_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1` to opt in. Subscription access and
-policies can change independently of this plugin.
+The plugin, by default, stops when Claude reports charging paid usage credits
+instead of your subscription allowance. This doesn't work for already in-flight
+requests, however. To strictly prevent credit spending, disable usage credits in
+your Claude account settings.
+
+To let the plugin continue using paid credits, add `"allowUsageCredits": true`
+to the plugin's `options` object above. This does not enable credits in your
+Claude account. The environment variable alternative for this is
+`OPENCODE_CLAUDE_CODE_ALLOW_USAGE_CREDITS`.
+
+Unset Claude API-key, custom-endpoint, and cloud-backend environment variables
+before using this plugin. It uses your Claude Code login instead.
 
 Each request starts a fresh CLI process and replays OpenCode's history. Tool
 schemas follow Pi's simplification limits. Tool calls wait for billing checks;
