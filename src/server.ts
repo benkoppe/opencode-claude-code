@@ -62,15 +62,13 @@ export async function startServer(options: ServerOptions) {
           env: options.env,
           signal: controller.signal,
           betas: String(request.headers["anthropic-beta"] ?? "").split(",").filter(Boolean),
-          // No warm workers: replay is enough initially and naturally isolates calls.
           onEvent(event) {
             if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
               const tool = event.content_block;
               const name = tool.name.slice(TOOL_PREFIX.length);
-              if (!tool.name.startsWith(TOOL_PREFIX) || !input.toolNames.has(name)) {
-                throw new Error("Claude Code returned a tool outside OpenCode's current tool inventory");
+              if (tool.name.startsWith(TOOL_PREFIX) && input.toolNames.has(name)) {
+                event = { ...event, content_block: { ...tool, name } };
               }
-              event = { ...event, content_block: { ...tool, name } };
               holdingTools = true;
             }
             // Do not report success until the CLI's billing guard has run.

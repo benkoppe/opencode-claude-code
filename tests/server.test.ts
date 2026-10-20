@@ -7,8 +7,9 @@ import { runClaudeRequest } from "../src/claude-cli.ts";
 import { startServer } from "../src/server.ts";
 import type { AnthropicStreamEvent } from "../src/native-types.ts";
 
-test("bridges a native tool round through the CLI relay, and withholds tools on billing failure", async () => {
+test("bridges a native tool round and withholds tools on billing or inventory failure", async () => {
   const bodies: any[] = [];
+  let toolName = "mcp__opencode__read";
   const upstream = createServer(async (request, response) => {
     let body = "";
     for await (const chunk of request) body += chunk;
@@ -24,7 +25,7 @@ test("bridges a native tool round through the CLI relay, and withholds tools on 
       { type: "content_block_stop", index: 0 },
       { type: "content_block_start", index: 1, content_block: hasResult
         ? { type: "text", text: "" }
-        : { type: "tool_use", id: "t", name: "mcp__opencode__read", input: {} } },
+        : { type: "tool_use", id: "t", name: toolName, input: {} } },
       { type: "content_block_delta", index: 1, delta: hasResult
         ? { type: "text_delta", text: "done" }
         : { type: "input_json_delta", partial_json: '{"path":"probe.txt"}' } },
@@ -75,6 +76,11 @@ test("bridges a native tool round through the CLI relay, and withholds tools on 
     assert.match(failed, /Claude Code billing:/);
     assert.doesNotMatch(failed, /"type":"tool_use"|event: message_stop/);
     assert.equal(bodies.length, 3);
+    overage = false;
+    toolName = "mcp__opencode__bash";
+    const invalid = await send([initial]);
+    assert.match(invalid, /tool outside OpenCode's current tool inventory/);
+    assert.doesNotMatch(invalid, /"type":"tool_use"|event: message_stop|UND_ERR_SOCKET/);
   } finally {
     await server.close();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
