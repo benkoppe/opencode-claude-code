@@ -9,6 +9,7 @@
   "files": ["dist", "LICENSE", "NOTICE"],
   "scripts": {
     "build": "node scripts/build.mjs",
+    "prepack": "pnpm check && pnpm test && pnpm build",
     "check": "tsc --noEmit",
     "test": "node --experimental-transform-types --test tests/*.test.ts",
     "smoke": "node scripts/smoke.mjs"

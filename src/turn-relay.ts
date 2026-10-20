@@ -2,7 +2,7 @@ import * as http from "node:http";
 import * as https from "node:https";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage } from "./native-types.ts";
+import type { AnthropicStreamEvent, NativeMessage } from "./native-types.ts";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
@@ -120,7 +120,6 @@ export class TurnRelay {
   failure?: string;
   errorBody = Buffer.alloc(0);
   originalRequestBody?: Buffer;
-  requestBody?: Buffer;
 
   private readonly upstream: URL;
   private readonly prefix = `/turn/${randomBytes(32).toString("base64url")}`;
@@ -129,7 +128,6 @@ export class TurnRelay {
   private readonly active = new Set<Promise<void>>();
   private cancelled = false;
   private closed = false;
-  private baseUrl?: string;
   private transformRequest?: (body: Buffer) => Buffer;
   private requestBetas: string[] = [];
 
@@ -160,7 +158,6 @@ export class TurnRelay {
     });
   }
 
-  /** Arm the persistent relay for one new Claude turn. */
   beginTurn(
     onEvent?: (event: AnthropicStreamEvent) => void,
     transformRequest?: (body: Buffer) => Buffer,
@@ -176,7 +173,6 @@ export class TurnRelay {
     this.failure = undefined;
     this.errorBody = Buffer.alloc(0);
     this.originalRequestBody = undefined;
-    this.requestBody = undefined;
     this.transformRequest = transformRequest;
     this.requestBetas = requestBetas;
     this.cancelled = false;
@@ -201,8 +197,7 @@ export class TurnRelay {
       });
     });
     const address = this.server.address() as AddressInfo;
-    this.baseUrl = `http://127.0.0.1:${address.port}${this.prefix}`;
-    return this.baseUrl;
+    return `http://127.0.0.1:${address.port}${this.prefix}`;
   }
 
   errorText(): string {
@@ -261,7 +256,6 @@ export class TurnRelay {
       let body = await this.readBody(request);
       this.originalRequestBody = Buffer.from(body);
       if (this.transformRequest) body = this.transformRequest(body);
-      this.requestBody = Buffer.from(body);
       if (this.cancelled) return;
 
       const headers: http.OutgoingHttpHeaders = {};

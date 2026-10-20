@@ -2,6 +2,7 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 
 const plugin = resolve(process.argv[2] ?? "./dist");
 await mkdir("/tmp/opencode", { recursive: true });
@@ -28,7 +29,26 @@ const child = spawn(process.env.OPENCODE_COMMAND ?? "opencode2", [
     XDG_CACHE_HOME: join(root, "cache"),
     XDG_STATE_HOME: join(root, "state"),
   },
-  stdio: "inherit",
+  stdio: ["inherit", "pipe", "inherit"],
+});
+let readCompleted = false;
+let text = "";
+let failed = false;
+const output = createInterface({ input: child.stdout });
+output.on("line", (line) => {
+  console.log(line);
+  try {
+    const event = JSON.parse(line);
+    if (event.type === "error") failed = true;
+    if (event.type === "tool_use" && event.part?.tool === "read" && event.part.state?.status === "completed") readCompleted = true;
+    if (event.type === "text") text += event.part?.text ?? "";
+  } catch {
+    failed = true;
+  }
 });
 child.on("error", (error) => { console.error(error); process.exitCode = 1; });
-child.on("exit", (code) => { process.exitCode = code ?? 1; });
+child.on("close", (code) => {
+  const passed = code === 0 && !failed && readCompleted && text.includes("claude-code-transport-ok");
+  if (!passed) console.error("Smoke test failed: expected a completed read and the probe contents in the reply.");
+  process.exitCode = passed ? 0 : 1;
+});

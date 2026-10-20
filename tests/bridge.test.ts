@@ -54,7 +54,7 @@ test("cancellation stops a waiting Claude subprocess", async () => {
     frames: [{ type: "user", message: { role: "user", content: [{ type: "text", text: "wait" }] } }],
   });
   const timer = setTimeout(() => controller.abort(), 100);
-  try { await assert.rejects(pending); } finally { clearTimeout(timer); }
+  try { await assert.rejects(pending, { name: "AbortError" }); } finally { clearTimeout(timer); }
 });
 
 test("restores native reminders and injects system updates without losing effort", () => {

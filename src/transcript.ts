@@ -60,7 +60,7 @@ export interface MessagesRequest {
 function nativeBlocks(blocks: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
   return blocks.map((source) => {
     const block = structuredClone(source);
-    // Claude Code and Pi's replay relay own the four available cache markers.
+    // Claude Code and the turn relay own the four available cache markers.
     delete block.cache_control;
     if (block.type === "tool_use" || block.type === "tool_reference") block.name = `${TOOL_PREFIX}${block.name}`;
     if ((block.type === "tool_addition" || block.type === "tool_removal") && block.tool) {
@@ -122,8 +122,6 @@ export function prepareRequest(request: MessagesRequest) {
   if (choice?.type === "tool" && choice.name) extraBody.tool_choice = { ...choice, name: `${TOOL_PREFIX}${choice.name}` };
   // Compaction remains OpenCode's job, never Claude Code's internal loop.
   if (!extraBody.thinking || (extraBody.thinking as { type?: string }).type === "disabled") {
-    // An omitted preference belongs to Claude Code. Newer models no longer
-    // accept the old forced "disabled" default used by the Pi reference.
     extraBody.context_management = { edits: [] };
   }
   return {
