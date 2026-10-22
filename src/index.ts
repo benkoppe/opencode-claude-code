@@ -1,5 +1,6 @@
 import { Model, Plugin, Provider } from "@opencode/plugin/effect";
 import { Effect } from "effect";
+import { ALLOW_USAGE_CREDITS_ENV } from "./billing.ts";
 import { discoverClaudeModels, getClaudeStatus } from "./claude-cli.ts";
 import { claudeModelName } from "./model-catalog.ts";
 import { startServer, type ReplayMetadata } from "./server.ts";
@@ -13,6 +14,7 @@ export default Plugin.define({
     if (typeof ctx.options.claudeCommand === "string") env.OPENCODE_CLAUDE_CODE_COMMAND = ctx.options.claudeCommand;
     if (typeof ctx.options.configDir === "string") env.OPENCODE_CLAUDE_CODE_CONFIG_DIR = ctx.options.configDir;
     if (typeof ctx.options.nodeCommand === "string") env.OPENCODE_CLAUDE_CODE_NODE_COMMAND = ctx.options.nodeCommand;
+    if (typeof ctx.options.allowUsageCredits === "boolean") env[ALLOW_USAGE_CREDITS_ENV] = ctx.options.allowUsageCredits ? "1" : "0";
 
     const status = yield* Effect.tryPromise((signal) => getClaudeStatus(env, signal)).pipe(Effect.orDie);
     if (!status.available || !status.loggedIn) {

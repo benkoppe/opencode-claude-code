@@ -33,7 +33,7 @@ export function usageCreditsChargeError(info: RateLimitInfo): Error {
     "Claude Code billing: this request was charged to Claude usage credits instead of your plan limits " +
       `(rate limit status ${info.status ?? "unknown"}${info.rateLimitType ? `, ${info.rateLimitType}` : ""}). ` +
       "OpenCode stopped so further requests are not charged. To stay on plan limits only, turn off usage credits at " +
-      `claude.ai/settings/usage. To allow usage credits, set ${ALLOW_USAGE_CREDITS_ENV}=1.`,
+      `claude.ai/settings/usage. To allow usage credits, set the plugin option allowUsageCredits to true or ${ALLOW_USAGE_CREDITS_ENV}=1.`,
   );
 }
 
