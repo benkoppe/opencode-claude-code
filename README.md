@@ -111,10 +111,6 @@ Claude account. The environment variable alternative for this is
 Unset Claude API-key, custom-endpoint, and cloud-backend environment variables
 before using this plugin. It uses your Claude Code login instead.
 
-Each request starts a fresh CLI process and replays OpenCode's history. Tool
-schemas follow Pi's simplification limits. Tool calls wait for billing checks;
-text and thinking stream immediately. OpenCode owns local summary compaction.
-
 ## Development
 
 ```sh
@@ -122,6 +118,7 @@ pnpm check
 pnpm test
 pnpm build
 pnpm smoke   # Uses your Claude login and subscription quota.
+pnpm release:check "$PWD/dist"  # Live compaction, restart, tools, and cache checks.
 ```
 
 For a fixture-only tool round:
