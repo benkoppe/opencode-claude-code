@@ -1,4 +1,5 @@
 import { constants as fsConstants } from "node:fs";
+import { createHash } from "node:crypto";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join, resolve } from "node:path";
@@ -57,6 +58,7 @@ export interface RunClaudeInput {
   /** Beta features appended to Claude Code's own request header by the turn relay. */
   betas?: string[];
   onEvent?: (event: AnthropicStreamEvent) => void;
+  sessionId?: string;
 }
 
 export interface RunClaudeOutput {
@@ -672,20 +674,48 @@ export function rewriteInitialRequest(
 interface ClaudeLaunchPlan {
   env: Record<string, string>;
   timeoutMs: number;
+  fingerprint: string;
+}
+
+function digest(value: unknown): string {
+  const canonical = JSON.stringify(value, (_key, child) => {
+    if (!child || typeof child !== "object" || Array.isArray(child)) return child;
+    return Object.fromEntries(Object.entries(child).sort(([left], [right]) => left.localeCompare(right)));
+  });
+  return createHash("sha256").update(canonical ?? "null").digest("hex");
+}
+
+function historyHash(frames: NativeFrame[], injections: NativeSystemInjection[] = []): string {
+  return digest({ frames: frames.map(({ type, message }) => ({ type, message })), injections });
 }
 
 function launchPlan(input: RunClaudeInput): ClaudeLaunchPlan {
+  const env = processEnvironment(input.env, input.extraBody);
+  const timeoutMs = input.timeoutMs ?? 180_000;
   return {
-    env: processEnvironment(input.env, input.extraBody),
-    timeoutMs: input.timeoutMs ?? 180_000,
+    env,
+    timeoutMs,
+    fingerprint: digest({
+      command: configuredCommand(env), cwd: resolve(input.cwd ?? process.cwd()), env,
+      extraBody: input.extraBody, manifest: input.manifest, model: input.model,
+      systemPrompt: input.systemPrompt, timeoutMs,
+      upstreamUrl: input.upstreamUrl ?? "https://api.anthropic.com",
+      betas: input.betas ?? [], toolNames: [...input.toolNames].sort(),
+    }),
   };
 }
 
 class ClaudeProcess {
+  readonly createdAt = Date.now();
+  lastUsed = this.createdAt;
+  private tipHash?: string;
+  private replay?: { initialUserPrefix?: unknown[]; initialSystemMessages?: unknown[] };
+  private closing?: Promise<void>;
   private closed = false;
   private stderr = "";
 
   private constructor(
+    readonly fingerprint: string,
     private readonly root: string,
     private readonly child: ChildProcess,
     private readonly relay: TurnRelay,
@@ -783,7 +813,7 @@ class ClaudeProcess {
         (code) => ({ code }),
         (error: unknown) => ({ error: error instanceof Error ? error : new Error(String(error)) }),
       );
-      return new ClaudeProcess(root, child, relay, queue, readTask, exitOutcome, plan.timeoutMs);
+      return new ClaudeProcess(plan.fingerprint, root, child, relay, queue, readTask, exitOutcome, plan.timeoutMs);
     } catch (error) {
       relay?.abort();
       if (child && child.exitCode === null) killProcessTree(child);
@@ -797,7 +827,37 @@ class ClaudeProcess {
     return !this.closed && this.child.exitCode === null && !!this.child.stdin?.writable;
   }
 
-  async run(input: RunClaudeInput): Promise<RunClaudeOutput> {
+  canContinue(input: RunClaudeInput): boolean {
+    const last = input.frames.at(-1);
+    if (!this.tipHash || last?.type !== "user" || last.shouldQuery === false) return false;
+    if (input.initialUserPrefix !== undefined && digest(input.initialUserPrefix) !== digest(this.replay?.initialUserPrefix)) return false;
+    if (input.initialSystemMessages !== undefined && digest(input.initialSystemMessages) !== digest(this.replay?.initialSystemMessages)) return false;
+    return this.tipHash === historyHash(input.frames.slice(0, -1),
+      input.nativeSystemInjections?.filter((injection) => injection.beforeAssistant !== null));
+  }
+
+  commit(input: RunClaudeInput, output: RunClaudeOutput): boolean {
+    // Claude's private history contains the inert MCP result, not OpenCode's result.
+    if (output.message.content.some((block) => block.type === "tool_use")) return false;
+    const ordinal = input.frames.filter((frame) => frame.type === "assistant").length;
+    const injections = input.nativeSystemInjections?.map((injection) => ({
+      ...injection, beforeAssistant: injection.beforeAssistant ?? ordinal,
+    }));
+    this.tipHash = historyHash([...input.frames, {
+      type: "assistant", message: { role: "assistant", content: output.message.content },
+    }], injections);
+    this.replay = structuredClone({
+      initialUserPrefix: output.initialUserPrefix, initialSystemMessages: output.initialSystemMessages,
+    });
+    this.lastUsed = Date.now();
+    return true;
+  }
+
+  async run(input: RunClaudeInput, continuation = false): Promise<RunClaudeOutput> {
+    if (continuation) input = { ...this.replay, ...input,
+      initialUserPrefix: input.initialUserPrefix ?? this.replay?.initialUserPrefix,
+      initialSystemMessages: input.initialSystemMessages ?? this.replay?.initialSystemMessages,
+    };
     if (!this.isAlive()) throw new Error("Claude Code process is no longer available");
     input.signal?.throwIfAborted();
 
@@ -833,7 +893,7 @@ class ClaudeProcess {
     let rateLimit: RateLimitInfo | undefined;
 
     try {
-      for (const frame of input.frames) {
+      for (const frame of continuation ? input.frames.slice(-1) : input.frames) {
         await writeFrame(this.child, frame);
         if (frame.shouldQuery === false) {
           for (;;) {
@@ -884,14 +944,14 @@ class ClaudeProcess {
         message = assistants.at(-1);
       }
 
+      const nativeFailureHandled = this.relay.denied > 0 || message?.stop_reason === "refusal";
+      if (nativeError && !nativeFailureHandled) throw new Error(`Claude Code API error: ${nativeError}`);
       if (!message || !sawMessageStop || !result) {
         throw new Error(
-          `Incomplete Claude Code response: assistant, message_stop and one result required${this.stderr ? ` (${this.stderr.trim().slice(-500)})` : ""}`,
+          `Incomplete Claude Code response: assistant, message_stop and one result required${result ? ` (result ${result.subtype}, turns ${result.num_turns}${result.errors ? `: ${JSON.stringify(result.errors)}` : ""})` : ""}${this.stderr ? ` (${this.stderr.trim().slice(-500)})` : ""}`,
         );
       }
 
-      const nativeFailureHandled = this.relay.denied > 0 || message.stop_reason === "refusal";
-      if (nativeError && !nativeFailureHandled) throw new Error(`Claude Code API error: ${nativeError}`);
       const hasTools = message.content.some((block) => block.type === "tool_use");
       const maxTurnsBoundary = hasTools && result.subtype === "error_max_turns";
       if (!maxTurnsBoundary && !nativeFailureHandled && (result.is_error || result.subtype !== "success")) {
@@ -938,10 +998,12 @@ class ClaudeProcess {
     }
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     this.closeNow();
-    await Promise.allSettled([this.readTask, this.exitOutcome, this.relay.close()]);
-    await rm(this.root, { recursive: true, force: true });
+    return this.closing ??= (async () => {
+      await Promise.allSettled([this.readTask, this.exitOutcome, this.relay.close()]);
+      await rm(this.root, { recursive: true, force: true });
+    })();
   }
 
   private closeNow(): void {
@@ -957,6 +1019,112 @@ class ClaudeProcess {
     const detail = this.stderr.trim().slice(-500);
     return new Error(`${fallback} (exit ${outcome.code ?? "unknown"}${detail ? `: ${detail}` : ""})`);
   }
+}
+
+type ProcessSlot =
+  | { state: "starting" }
+  | { state: "busy"; worker: ClaudeProcess }
+  | { state: "idle"; worker: ClaudeProcess; timer: NodeJS.Timeout };
+
+export function createClaudeRunner({ maxWorkers = 2, maxAgeMs = 300_000 } = {}) {
+  const slots = new Map<string, ProcessSlot>();
+  const workers = new Set<ClaudeProcess>();
+  const active = new Set<Promise<RunClaudeOutput>>();
+  const closing = new Set<Promise<void>>();
+  const shutdown = new AbortController();
+  let closeTask: Promise<void> | undefined;
+
+  const retire = (worker: ClaudeProcess) => {
+    workers.delete(worker);
+    const task = worker.close();
+    closing.add(task);
+    task.then(() => closing.delete(task), () => closing.delete(task));
+    return task;
+  };
+  const remove = (key: string, slot: ProcessSlot) => {
+    if (slots.get(key) !== slot) return;
+    slots.delete(key);
+    if (slot.state === "idle") clearTimeout(slot.timer);
+    if (slot.state !== "starting") void retire(slot.worker);
+  };
+
+  const execute = async (input: RunClaudeInput): Promise<RunClaudeOutput> => {
+    input.signal?.throwIfAborted();
+    const plan = launchPlan(input);
+    const key = input.sessionId;
+    const cached = key ? slots.get(key) : undefined;
+    let reservation: ProcessSlot | undefined;
+    let worker: ClaudeProcess | undefined;
+    let continuation = false;
+    if (key && cached?.state === "idle") {
+      if (cached.worker.isAlive() && Date.now() - cached.worker.createdAt < maxAgeMs &&
+          cached.worker.fingerprint === plan.fingerprint && cached.worker.canContinue(input)) {
+        clearTimeout(cached.timer);
+        worker = cached.worker;
+        continuation = true;
+        reservation = { state: "busy", worker };
+        slots.set(key, reservation);
+      } else remove(key, cached);
+    }
+    if (key && !worker && !slots.has(key)) {
+      if (slots.size >= maxWorkers) {
+        const victim = [...slots.entries()]
+          .filter((entry): entry is [string, Extract<ProcessSlot, { state: "idle" }>] => entry[1].state === "idle")
+          .sort((left, right) => left[1].worker.lastUsed - right[1].worker.lastUsed)[0];
+        if (victim) remove(...victim);
+      }
+      if (slots.size < maxWorkers) {
+        reservation = { state: "starting" };
+        slots.set(key, reservation);
+      }
+    }
+    try {
+      if (!worker) {
+        worker = await ClaudeProcess.create(input, plan);
+        workers.add(worker);
+        input.signal?.throwIfAborted();
+        if (key && reservation && slots.get(key) === reservation) {
+          reservation = { state: "busy", worker };
+          slots.set(key, reservation);
+        }
+      }
+      const output = await worker.run(input, continuation);
+      if (key && reservation && slots.get(key) === reservation && !shutdown.signal.aborted && worker.commit(input, output)) {
+        const idle: ProcessSlot = { state: "idle", worker, timer: setTimeout(() => remove(key, idle),
+          Math.max(0, maxAgeMs - (Date.now() - worker.createdAt))) };
+        idle.timer.unref();
+        slots.set(key, idle);
+      } else {
+        if (key && reservation) remove(key, reservation);
+        await retire(worker);
+      }
+      return output;
+    } catch (error) {
+      if (key && reservation) remove(key, reservation);
+      if (worker) await retire(worker);
+      throw error;
+    }
+  };
+
+  return {
+    run(input: RunClaudeInput): Promise<RunClaudeOutput> {
+      if (shutdown.signal.aborted) return Promise.reject(new Error("Claude Code runner is closed"));
+      const signal = input.signal ? AbortSignal.any([input.signal, shutdown.signal]) : shutdown.signal;
+      const task = execute({ ...input, signal });
+      active.add(task);
+      task.then(() => active.delete(task), () => active.delete(task));
+      return task;
+    },
+    close(): Promise<void> {
+      return closeTask ??= (async () => {
+        shutdown.abort();
+        for (const [key, slot] of slots) remove(key, slot);
+        await Promise.allSettled([...workers].map(retire));
+        await Promise.allSettled([...active]);
+        await Promise.allSettled([...closing]);
+      })();
+    },
+  };
 }
 
 export async function runClaudeRequest(input: RunClaudeInput): Promise<RunClaudeOutput> {

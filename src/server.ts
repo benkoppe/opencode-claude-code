@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describeUsageCreditsRejection } from "./billing.ts";
-import { runClaudeRequest, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
+import { createClaudeRunner, type RunClaudeInput, type RunClaudeOutput } from "./claude-cli.ts";
 import type { AnthropicStreamEvent } from "./native-types.ts";
 import { prepareRequest, TOOL_PREFIX, type MessagesRequest } from "./transcript.ts";
 
@@ -26,6 +26,7 @@ export function normalizeError(error: unknown): string {
 }
 
 export async function startServer(options: ServerOptions) {
+  const runner = createClaudeRunner();
   const prefix = `/${randomBytes(32).toString("base64url")}`;
   const active = new Map<AbortController, Promise<void>>();
   const server = createServer((request, response) => {
@@ -55,9 +56,10 @@ export async function startServer(options: ServerOptions) {
         const emit = (event: AnthropicStreamEvent) => {
           response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
         };
-        const output = await (options.run ?? runClaudeRequest)({
+        const output = await (options.run ?? runner.run)({
           ...input,
           ...replay,
+          sessionId: session.endsWith("/primary") ? session : undefined,
           cwd: options.cwd,
           env: options.env,
           signal: controller.signal,
@@ -111,8 +113,10 @@ export async function startServer(options: ServerOptions) {
     baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}${prefix}/v1`,
     async close() {
       for (const controller of active.keys()) controller.abort();
+      const stopped = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await runner.close();
+      await stopped;
       await Promise.allSettled([...active.values()]);
     },
   };

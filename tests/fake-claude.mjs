@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A stream-json executable fixture, as in Pi's CLI/billing tests. No real auth or API.
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 if (process.argv.includes("auth")) {
@@ -10,6 +10,7 @@ if (process.argv.includes("auth")) {
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const history = [];
+if (process.env.FAKE_PROCESS_LOG) appendFileSync(process.env.FAKE_PROCESS_LOG, `${process.pid}\n`);
 for await (const line of input) {
   const frame = JSON.parse(line);
   if (frame.type === "control_request") {
@@ -20,6 +21,7 @@ for await (const line of input) {
     } }));
     continue;
   }
+  if (process.env.FAKE_FRAME_LOG) appendFileSync(process.env.FAKE_FRAME_LOG, JSON.stringify({ pid: process.pid, frame }) + "\n");
   history.push(frame.message);
   if (frame.shouldQuery === false) {
     console.log(JSON.stringify({ type: "result", num_turns: 0 }));
@@ -34,7 +36,16 @@ for await (const line of input) {
       method: "POST", headers: { authorization: "Bearer fixture-only" },
       body: JSON.stringify({ ...extra, model: "sonnet", messages: history }),
     });
-    await response.text();
+    const stream = await response.text();
+    // Retain text responses just as the real CLI does for a later warm turn.
+    const events = stream.split("\n").filter((line) => line.startsWith("data:")).map((line) => JSON.parse(line.slice(5)));
+    const starts = events.filter((event) => event.type === "content_block_start");
+    if (starts.length && starts.every((event) => event.content_block.type === "text")) {
+      history.push({ role: "assistant", content: starts.map((start) => ({
+        type: "text", text: start.content_block.text + events.filter((event) =>
+          event.type === "content_block_delta" && event.index === start.index).map((event) => event.delta.text ?? "").join(""),
+      })) });
+    }
   } else {
     const usage = { input_tokens: 3, output_tokens: 1 };
     const toolRound = process.env.FAKE_TOOL_ROUND === "1";
@@ -58,6 +69,7 @@ for await (const line of input) {
     console.log(JSON.stringify({ type: "assistant", message: {
       id: "m", role: "assistant", content: [content], stop_reason: reason, usage,
     } }));
+    history.push({ role: "assistant", content: [content] });
   }
   console.log(JSON.stringify({ type: "rate_limit_event", rate_limit_info: {
     status: "allowed", isUsingOverage: process.env.FAKE_OVERAGE === "1",

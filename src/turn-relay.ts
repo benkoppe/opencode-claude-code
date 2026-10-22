@@ -184,7 +184,8 @@ export class TurnRelay {
     this.cancelled = true;
     for (const socket of this.sockets) socket.destroy(new Error("Claude Code request aborted"));
     this.sockets.clear();
-    this.server.closeAllConnections?.();
+    // Keep the listener for the next turn. Bun also stops it when calling
+    // closeAllConnections(), unlike Node; the tracked sockets above suffice.
   }
 
   async start(): Promise<string> {
