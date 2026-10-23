@@ -1,7 +1,14 @@
 {
-  "name": "opencode-claude-code",
+  "name": "@benkoppe/opencode-claude-code",
   "version": "0.1.0",
   "description": "Claude Code CLI provider for OpenCode 2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benkoppe/opencode-claude-code.git"
+  },
+  "homepage": "https://github.com/benkoppe/opencode-claude-code#readme",
+  "bugs": "https://github.com/benkoppe/opencode-claude-code/issues",
+  "publishConfig": { "access": "public" },
   "type": "module",
   "packageManager": "pnpm@11.25.0",
   "exports": "./dist/index.js",
