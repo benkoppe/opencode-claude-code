@@ -25,10 +25,8 @@ OpenCode installs the package automatically.
 
 ## Install with Nix
 
-The Nix package supplies its runtime.
-
 ```sh
-nix build .
+nix build github:benkoppe/opencode-claude-code
 ```
 
 Use the absolute path to `result/lib/opencode-claude-code` in your plugin list.
