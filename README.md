@@ -10,31 +10,22 @@ Experimental.
 
 - OpenCode 2.
 - Claude CLI, signed in with `claude auth login`.
-- Node.js and pnpm for source builds. The Nix package supplies its runtime.
 
-Examples use `opencode2`. Use `opencode` if that is your OpenCode 2 executable.
+## Install from npm
 
-## Install from source
-
-Clone this repository, enter its directory, and build:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm build
-```
-
-Append the absolute `dist` path to `~/.config/opencode/opencode.json`, or your
-project's `opencode.json`. Preserve existing plugins.
+Add the package to your OpenCode configuration, preserving existing plugins:
 
 ```json
 {
-  "plugins": ["/absolute/path/to/opencode-claude-code/dist"]
+  "plugins": ["@benkoppe/opencode-claude-code"]
 }
 ```
 
-Rebuild after source updates.
+OpenCode installs the package automatically.
 
 ## Install with Nix
+
+The Nix package supplies its runtime.
 
 ```sh
 nix build .
@@ -64,7 +55,7 @@ Models from this plugin are labeled under **Claude Code**.
 Optionally, set `"model": "claude-code/opus"`, or another model, to change Opencode's default.
 
 If the **Claude Code** label is missing, sign into Claude Code with `claude auth login`,
-then reload Opencode2 with `opencode service restart`.
+then reload OpenCode with `opencode service restart`.
 
 Optional executable and directory options are `claudeCommand`, `configDir`, and `nodeCommand`.
 Use the object form, for example:
@@ -110,6 +101,28 @@ Claude account. The environment variable alternative for this is
 
 Unset Claude API-key, custom-endpoint, and cloud-backend environment variables
 before using this plugin. It uses your Claude Code login instead.
+
+## Install from source
+
+Requires Node.js and pnpm.
+
+Clone this repository, enter its directory, and build:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+Append the absolute `dist` path to `~/.config/opencode/opencode.json`, or your
+project's `opencode.json`. Preserve existing plugins.
+
+```json
+{
+  "plugins": ["/absolute/path/to/opencode-claude-code/dist"]
+}
+```
+
+Rebuild after source updates.
 
 ## Development
 
