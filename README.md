@@ -143,6 +143,3 @@ OPENCODE_CLAUDE_CODE_COMMAND="$PWD/tests/fake-claude.mjs" FAKE_TOOL_ROUND=1 pnpm
 Pass a plugin directory to `pnpm smoke` to test a packaged build. Set
 `OPENCODE_COMMAND` if needed. Smoke tests isolate OpenCode data under
 `/tmp/opencode` and retain the directory for inspection.
-
-`pnpm pack` checks, tests, and rebuilds before creating a tarball. With Nix
-installed, `nix build .` also runs checks.
